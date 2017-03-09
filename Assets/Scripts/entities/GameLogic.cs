@@ -1,54 +1,63 @@
-﻿using System;
-
+﻿using UnityEngine;
+using System;
 
 public class GameLogic {
 
 	public String type = "GameLogic";
 	public SimpleGameObject ball;
+	public SimpleGameObject lastBounce;
 	public SimpleGameObject paddle1;
 	public SimpleGameObject paddle2;
 
-	public PaddleMovementRequest[] paddle1Replay;
-	public PaddleMovementRequest[] paddle2Replay;
-
-	// how much the ball moves at every step
-	public float step = 0.05f;
-
-	// current angle the ball bounces
-	public float currentAngle = 45f;
-
 	// bounds
 	public int lowerBoundGridX = 0;
-	public int higherBoundGridX = 11;
+	public int higherBoundGridX = 4;
 	public int lowerBoundGridY = 0;
-	public int higherBoundGridY = 11;
+	public int higherBoundGridY = 7;
 
-	// fake bools (used to make code portable between C# and Java
-	private static int TRUE = 1;
-	private static int FALSE = 0;
+	public bool hasStarted;
+	public bool paused;
+	public bool gameOver;
+	public bool player1Connected = false;
+	public bool player2Connected = false;
 
-	// fake int bools
-	public int hasStarted;
-	public int gameOver;
-	public int incrementX;
-	public int incrementY;
-
-	public int player1Connected = FALSE;
-	public int player2Connected = FALSE;
+	public bool up;
+	public bool right;
 
 	// winner == 1 -> paddle 1 won
 	// winner == 2 -> paddle 2 won
 	public int winner;
 
-	public long currentTick = 0;
+	public static int FPS = 60;
+	public long currentTick;
+	public long bounceAngle;
+	public static float START_SPEED = 1.0f/20;
+	public float speed = START_SPEED;
+	public float paddleSpeed = 0.1f;
+	public int player1Score = 0;
+	public int player2Score = 0;
+
+	public int sizeArrayAngles = 50;
+	public int[] arrayAngles;
+	public int arrayAnglesCurrentIndex = 0;
+
+	public bool isGoalPause;
+	public long goalUnpauseTick;
+
+	private long FIXED_ANGLE = 35;
 
 	public GameLogic() {
 		ball = new SimpleGameObject ();
 		paddle1 = new SimpleGameObject ();
 		paddle2 = new SimpleGameObject ();
-		incrementX = TRUE;
-		incrementY = TRUE;
-		hasStarted = FALSE;
+		Restart ();
+		hasStarted = false;
+	}
+
+	public void Restart() {
+		arrayAnglesCurrentIndex = 0;
+		hasStarted = true;
+		gameOver = false;
 		paddle1.x = higherBoundGridX/2;
 		paddle1.y = 0;
 		ball.x = higherBoundGridX/2;
@@ -56,33 +65,65 @@ public class GameLogic {
 		paddle2.x = higherBoundGridX/2;
 		paddle2.y = higherBoundGridY;
 		currentTick = 0;
+		bounceAngle = FIXED_ANGLE;
+		lastBounce = new SimpleGameObject();
+		lastBounce.x = ball.x;
+		lastBounce.y = ball.y;
+		up = true;
+		right = true;
+		isGoalPause = false;
 	}
 
-	public void ManuallyMoveBall(float x, float y){
-		if 	(gameOver == TRUE) {
+	public void ManuallyMoveBall(float x){
+		if 	(gameOver) {
 			return;
 		}
 		ball.x = x;
-		ball.y = y;
+		lastBounce.x = x;
 	}
 
-	public void MovePaddle1(float x, float y){
-		if (gameOver == TRUE) {
+	public void MovePaddle1(bool right){
+		if (gameOver) {
 			return;
 		}
-		paddle1.x = x;
-		paddle1.y = y;
-		if (hasStarted == FALSE) {
-			ManuallyMoveBall (x, y);
+
+		if (right) {
+			paddle1.x += paddleSpeed;
+		} else {
+			paddle1.x -= paddleSpeed;
+		}
+
+		if (paddle1.x < 0) {
+			paddle1.x = 0;
+		} else if(paddle1.x > higherBoundGridX) {
+			paddle1.x = higherBoundGridX;
+		}
+
+		if (paused) {
+			ManuallyMoveBall (paddle1.x);
 		}
 	}
 
-	public void MovePaddle2(float x, float y){
-		if (gameOver == TRUE) {
+	public void MovePaddle2(bool right){
+		if (gameOver) {
 			return;
 		}
-		paddle2.x = x;
-		paddle2.y = y;
+
+		if (right) {
+			paddle2.x += paddleSpeed;
+		} else {
+			paddle2.x -= paddleSpeed;
+		}
+
+		if (paddle2.x < 0) {
+			paddle2.x = 0;
+		} else if (paddle2.x > higherBoundGridX){
+			paddle2.x = higherBoundGridX;
+		}
+
+		if (paused) {
+			ManuallyMoveBall (paddle2.x);
+		}
 	}
 
 	public SimpleGameObject GetPaddleByPlayerNumber(short playerNumber) {
@@ -102,68 +143,132 @@ public class GameLogic {
 	}
 
 	public void StartGame() {
-		hasStarted = TRUE;
+		hasStarted = true;
 	}
 
-	public void MoveBall() {
-
-		if (gameOver == TRUE || hasStarted == FALSE) {
+	public void Update() {
+			
+		if (gameOver || !hasStarted) {
 			return;
 		}
 
 		currentTick++;
 
-		if ((ball.x + 1) > higherBoundGridX) {
-			incrementX = FALSE;
-		} else if(ball.x < lowerBoundGridX) {
-			incrementX = TRUE;
+		// increasing the difficulty
+		if (currentTick % 100 == 0 && speed < 0.2f) {
+			speed += 0.01f;
 		}
 
-		if ((ball.y + 1) > higherBoundGridY) {
-			incrementY = FALSE;
-			/*if (HasCollided(paddle2.x, ball.x) == TRUE) {
-				//currentAngle = MathUtils.GetRandom (10f, 60f);
-				currentAngle = 45f;
+		if (up) {
+
+			if (right) {
+				ball.x = ball.x + MathUtils.Cos (bounceAngle) * speed;
+				ball.y = ball.y + MathUtils.Sin (bounceAngle) * speed;
 			} else {
-				// paddle didnt hit the ball
-				gameOver = TRUE;
-				winner = 1;
-				return;
-			}*/
+				ball.x = ball.x - MathUtils.Sin (bounceAngle) * speed;
+				ball.y = ball.y + MathUtils.Cos (bounceAngle) * speed;
+			}
 
-		} else if(ball.y < lowerBoundGridY) {
-			incrementY = TRUE;
-			// paddle hit the ball
-			/*if (HasCollided(paddle1.x, ball.x) == TRUE) {
-				//currentAngle = MathUtils.GetRandom (10f, 60f);
-				currentAngle = 45f;
+		} else {
+
+			if (right) {
+				ball.x = ball.x + MathUtils.Cos (bounceAngle) * speed;
+				ball.y = ball.y - MathUtils.Sin (bounceAngle) * speed;
 			} else {
-				// paddle didnt hit the ball
-				gameOver = TRUE;
-				winner = 2;
-				return;
-			}*/
+				ball.x = ball.x - MathUtils.Sin (bounceAngle) * speed;
+				ball.y = ball.y - MathUtils.Cos (bounceAngle) * speed;
+			}
 
 		}
 
-		double prevX = ball.x;
-		if (incrementX == TRUE) {
-			ball.x += step;
-		} else {
-			ball.x -= step;
+		// verifies if it hits the walls
+		if (ball.x > higherBoundGridX) {
+			right = false;
+		} else if (ball.x < lowerBoundGridX) {
+			right = true;
 		}
 
-		float deltaX = MathUtils.Abs(ball.x,prevX);
-		if (incrementY == TRUE) {
-			ball.y+= MathUtils.Tan (MathUtils.DegreesToRad(currentAngle)) * deltaX;
-		} else {
-			ball.y-= MathUtils.Tan (MathUtils.DegreesToRad(currentAngle)) * deltaX;
+		// verifies if it hit the paddles
+		if (MathUtils.Abs(ball.y, paddle2.y) <= 0.2f && HasCollided(paddle2.x, ball.x)) {
+			up = false;
+			bounceAngle = GetAngle ();
+		} else if (MathUtils.Abs(ball.y, paddle1.y) <= 0.2f && HasCollided(paddle1.x, ball.x)) {
+			up = true;
+			bounceAngle = GetAngle ();
+		}
+
+		// pause to show the goal sign
+		if(isGoalPause && currentTick > goalUnpauseTick) {
+			isGoalPause = false;	
+			speed = START_SPEED;
+			// reset the game depending on who scored
+			if (ball.y < lowerBoundGridY) {
+				// player 1 starts
+				ball.x = paddle1.x;
+				ball.y = lowerBoundGridY;
+				up = true;
+				right = true;
+			} else if (ball.y > higherBoundGridY){
+				ball.x = paddle2.x;
+				ball.y = higherBoundGridY;
+				up = false;
+				right = false;
+			}
+
+		} else if (ball.y < (lowerBoundGridY - 1) && !isGoalPause) {
+			isGoalPause = true;
+			// 2 seconds to show the Goal sign
+			goalUnpauseTick = currentTick + FPS * 2;
+			player2Score++;
+		} else if (ball.y > (higherBoundGridY + 1) && !isGoalPause){
+			isGoalPause = true;
+			// 2 seconds to show the Goal sign
+			goalUnpauseTick = currentTick + FPS * 2;
+			player1Score++;
 		}
 
 	}
 
-	int HasCollided(float xPaddle, float xBall) {
-		return xBall >= xPaddle && xBall <= xPaddle + 1 || xBall + 1 >= xPaddle && xBall + 1 <= xPaddle + 1 ? TRUE : FALSE;
+	int GetAngle() {
+		if (arrayAngles == null || arrayAnglesCurrentIndex >= sizeArrayAngles) {
+			arrayAngles = new int[sizeArrayAngles];
+			for (int i = 0; i < sizeArrayAngles; i++) {
+				arrayAngles [i] = (int)MathUtils.GetRandom (10, 50);
+			}
+			arrayAnglesCurrentIndex = 0;
+		}
+		return arrayAngles[arrayAnglesCurrentIndex];
+	}
+
+	bool DetectPaddleCollision() {
+		return HasCollided (paddle1.x, ball.x) || HasCollided (paddle2.x, ball.x);
+	}
+
+	public bool HasCollided(float xPaddle, float xBall) {
+		return xBall >= xPaddle && xBall <= xPaddle + 1 || xBall + 1 >= xPaddle && xBall + 1 <= xPaddle + 1 ? true : false;
+	}
+
+	public void Copy(GameLogic gameLogic) {
+
+		ball = gameLogic.ball;
+		lastBounce = gameLogic.lastBounce;
+		paddle1 = gameLogic.paddle1;
+		paddle2 = gameLogic.paddle2;
+
+		hasStarted = gameLogic.hasStarted;
+		gameOver = gameLogic.gameOver;
+		player1Connected = gameLogic.player1Connected;
+		player2Connected = gameLogic.player2Connected;
+
+		winner = gameLogic.winner;
+
+		speed = gameLogic.speed;
+		currentTick = gameLogic.currentTick;
+		bounceAngle = gameLogic.bounceAngle;
+		paused = gameLogic.paused;
+		arrayAngles = gameLogic.arrayAngles;
+		arrayAnglesCurrentIndex = gameLogic.arrayAnglesCurrentIndex;
+		sizeArrayAngles = gameLogic.sizeArrayAngles;
 	}
 
 }

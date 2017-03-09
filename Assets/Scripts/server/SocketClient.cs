@@ -24,8 +24,8 @@ public class SocketClient : MonoBehaviour {
 	private bool socketReady = false;
 	private TcpClient socketClient;
 	private NetworkStream theStream;
-	private StreamWriter theWriter;
-	private StreamReader theReader;
+	private StreamWriter stWriter;
+	private StreamReader stReader;
 	private Queue<String> messagesToBeSent;
 	private Queue<String> receivedMessages;
 	private Thread senderNetworkThread;
@@ -51,8 +51,8 @@ public class SocketClient : MonoBehaviour {
 		try {
 			socketClient = new TcpClient(SERVER_HOST, SERVER_PORT);
 			theStream = socketClient.GetStream();
-			theWriter = new StreamWriter(theStream);
-			theReader = new StreamReader(theStream);
+			stWriter = new StreamWriter(theStream);
+			stReader = new StreamReader(theStream);
 			socketReady = true;
 		}
 		catch (Exception e) {
@@ -66,10 +66,11 @@ public class SocketClient : MonoBehaviour {
 			Debug.Log ("Sending message: " + message);
 		}
 		try {
-			if (!socketReady)
+			if (!socketReady) {
 				return;
-			theWriter.Write(message + "\r\n");
-			theWriter.Flush();
+			}
+			stWriter.Write(message + "\r\n");
+			stWriter.Flush();
 		} catch (Exception err) {
 			Debug.Log("Error sending message to server: " + err.ToString());
 		}
@@ -127,8 +128,8 @@ public class SocketClient : MonoBehaviour {
 	public void CloseSocket() {
 		if (!socketReady)
 			return;
-		theWriter.Close();
-		theReader.Close();
+		stWriter.Close();
+		stReader.Close();
 		socketClient.Close();
 		socketReady = false;
 	}

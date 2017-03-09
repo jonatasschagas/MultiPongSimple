@@ -7,8 +7,11 @@ using UnityEngine.UI;
 public class GameController : MonoBehaviour, IListener {
 
 	#region constants
-	private const float SERVER_PULL_INTERVAL_SECONDS = 0.5f; 
-	private const int 	FPS = 60;
+	private const float SERVER_PULL_INTERVAL_SECONDS = 0.15f; 
+	#endregion
+
+	#region options
+	public bool singlePlayer = false;
 	#endregion
 
 	#region control members
@@ -18,14 +21,15 @@ public class GameController : MonoBehaviour, IListener {
 	private bool isConnected;
 	private float reSendToServerCoolDown = 0;
 	private GameLogic gameLogic;
+	private bool startMessageSent = false;
 	#endregion
 
-	#region UI
-	public Text statusText; 
+	#region buttons
+	public GameObject singlePlayerBtn;
+	public GameObject multiPlayerBtn;
 	#endregion
 
 	#region prefabs
-	public GameObject startBtn;
 	public GameObject paddle1Prefab;
 	public GameObject paddle2Prefab;
 	public GameObject ballPrefab;
@@ -39,12 +43,24 @@ public class GameController : MonoBehaviour, IListener {
 	private SwipeControl swipeControl;
 	#endregion
 
+	#region getters
+
+	public GameLogic GetGameModel() {
+		return gameLogic;
+	}
+
+	public int GetPlayerNumber() {
+		return playerNumber;
+	}
+
+	#endregion
+
 	#region main methods
 
 	void Start () {
 		serverMessageDispatcher = gameObject.GetComponent<ServerMessageDispatcher> ();
 		RegisterEventListeners ();
-		Application.targetFrameRate = FPS;
+		Application.targetFrameRate = GameLogic.FPS;
 	}
 	
 	void Update () {
@@ -53,22 +69,61 @@ public class GameController : MonoBehaviour, IListener {
 			return;
 		}
 
-		UpdateServer();
+		// start the game for multiplayer game
+		if (singlePlayer == false && playerNumber == 1 && DidOpponentConnect()) {
+			SendGameStartMessage ();
+			startMessageSent = true;
+		} 
 
-		if(gameLogic.hasStarted == 1 && gameLogic.gameOver == 0) {
+		// updates the opponent
+		if (singlePlayer) {
+			UpdateAI ();
+		} else {
+			UpdateServer();
+		}
+
+		if(gameLogic.hasStarted && !gameLogic.gameOver) {
 			// update game if it has started
-			gameLogic.MoveBall ();
+			gameLogic.Update ();
 		}
 
 	}
 
+	private bool DidOpponentConnect() {
+		return gameLogic != null &&
+		gameLogic.player1Connected &&
+		gameLogic.player2Connected &&
+		gameLogic.hasStarted == false &&
+		startMessageSent == false;
+	}
+
+	/// <summary>
+	/// Updates the opponent AI when playing Single Player
+	/// </summary>
+	private void UpdateAI() {
+		if (gameLogic != null) {
+			SimpleGameObject ballObj = gameLogic.ball;
+			SimpleGameObject paddle2Obj = gameLogic.paddle2;
+			if (ballObj.x > paddle2Obj.x) {
+				gameLogic.MovePaddle2 (true);
+			} else if (ballObj.x < paddle2Obj.x){
+				gameLogic.MovePaddle2 (false);
+			}
+		}
+	}
+
+	/// <summary>
+	/// Updates the multiplayer game
+	/// </summary>
 	private void UpdateServer() {
 		reSendToServerCoolDown -= Time.deltaTime;
 		if (isConnected && reSendToServerCoolDown <= 0.0f) {
 
-			// send new paddle movement to the server
-			Debug.Log("Sending new paddle movement to the server");
-			serverMessageDispatcher.SendMessage (myPaddle.GetPaddlePosition ());
+			if(gameLogic != null && gameLogic.hasStarted) {
+				// send new paddle movement to the server
+				Debug.Log("Sending new paddle movement to the server");
+				serverMessageDispatcher.SendMessage (myPaddle.GetPaddlePosition ());
+			}
 
 			Debug.Log("Request Game State Update");
 			// send request to update the GameState
@@ -80,6 +135,7 @@ public class GameController : MonoBehaviour, IListener {
 			reSendToServerCoolDown = SERVER_PULL_INTERVAL_SECONDS;
 		}
 	}
+
 
 	#endregion
 
@@ -134,40 +190,81 @@ public class GameController : MonoBehaviour, IListener {
 		Debug.Log ("Sync with the server.");
 
 		GameLogic currentState = gameLogic;
-
-		if(currentState.player1Connected == 1 && currentState.player2Connected == 1 && playerNumber == 1) {
-			statusText.text = "Prepare to start! Game about to begin...";
-			// starting the game after 3 seconds
-			Invoke("SendGameStartMessage", 3);
-			return;
-		}
+		currentState.player1Connected = serverState.player1Connected;
+		currentState.player2Connected = serverState.player2Connected;
 
 		// fast forwarding by executing the inputs
 		for (long tick = serverState.currentTick; tick <= currentState.currentTick; tick++) {
 			List<PaddleMovementRequest> inputsPerTick = myPaddle.GetInputsForTick(tick);
 			if(inputsPerTick != null) {
 				foreach (PaddleMovementRequest input in inputsPerTick) {
-					SimpleGameObject paddle = input.paddle;
 					if (input.playerNumber == 1) {
-						serverState.MovePaddle1 (paddle.x, paddle.y);
+						serverState.paddle1 = input.paddle;	
 					} else {
-						serverState.MovePaddle2 (paddle.x, paddle.y);
+						serverState.paddle2 = input.paddle;
 					}
 				}
 			}
-			serverState.MoveBall ();
+			serverState.Update ();
 		}
 
 		// updating the entities according to the server's update
-		myPaddle.SynchronizeWithServerState (serverState);
-		if (playerNumber == 1) {
-			opponentPaddle.EnqueueOpponentReplay (serverState.paddle2Replay);
-		} else {
-			opponentPaddle.EnqueueOpponentReplay (serverState.paddle1Replay);
-		}
-		ball.SynchronizeWithServerState (serverState);
-
+		currentState.Copy (serverState);
+		// updating paddles
+		//myPaddle.UpdatePaddleModel (currentState);
+		opponentPaddle.UpdatePaddleModel (currentState);
 	}
+
+	/// <summary>
+	/// Processes the remote paddle movement
+	/// </summary>
+	/// <param nam e="paddleMovementRequest">Paddle movement request.</param>
+	private void ProcessPaddleMovement(PaddleMovementRequest paddleMovementRequest) {
+		Debug.Log ("Process Paddle Movement: " + JsonUtility.ToJson(paddleMovementRequest));
+		if (paddleMovementRequest.playerNumber == 1) {
+			gameLogic.paddle1 = paddleMovementRequest.paddle;
+		} else {
+			gameLogic.paddle2 = paddleMovementRequest.paddle;
+		}
+	}
+
+	#endregion
+
+	#region connect
+
+	/// <summary>
+	/// Sets the game into "Single Player Mode"
+	/// </summary>
+	public void SinglePlayerBtn() {
+		singlePlayer = true;
+		StartGameBtn ();
+	}
+
+	/// <summary>
+	/// Sets the game into "Multiplayer Mode"
+	/// </summary>
+	public void MultiPlayerBtn() {
+		singlePlayer = false;
+		StartGameBtn ();
+	}
+
+	/// <summary>
+	/// This method is used by the "start button". It initializes the game (single or multiplayer)
+	/// </summary>
+	private void StartGameBtn() {
+		singlePlayerBtn.SetActive(false);
+		multiPlayerBtn.SetActive(false);
+		if (!singlePlayer) {
+			GameConnectionRequest gameConnectionRequest = new GameConnectionRequest ();
+			gameConnectionRequest.deviceId = SystemInfo.deviceUniqueIdentifier;
+			serverMessageDispatcher.SendMessage (gameConnectionRequest);
+		} else {
+			playerNumber = 1;
+			InitializeGameSession ();
+			ProcessStartGame (null);
+		}
+	}
+
 
 	/// <summary>
 	/// Processes the connect event by initializing the game session
@@ -181,28 +278,9 @@ public class GameController : MonoBehaviour, IListener {
 		isConnected = true;
 	}
 
-	/// <summary>
-	/// When the start game message comes from the server it starts the game
-	/// </summary>
-	/// <param name="startGameResponse">Start game response.</param>
-	private void ProcessStartGame(StartGameResponse startGameResponse) {
-		Debug.Log ("Starting game now");
-		statusText.text = "";
-		gameLogic.StartGame ();
-	}
+	#endregion
 
-	/// <summary>
-	/// Processes the remote paddle movement
-	/// </summary>
-	/// <param nam e="paddleMovementRequest">Paddle movement request.</param>
-	private void ProcessPaddleMovement(PaddleMovementRequest paddleMovementRequest) {
-		Debug.Log ("Process Paddle Movement: " + JsonUtility.ToJson(paddleMovementRequest));
-		if (paddleMovementRequest.playerNumber == 1) {
-			gameLogic.MovePaddle1 (paddleMovementRequest.paddle.x, paddleMovementRequest.paddle.y);
-		} else {
-			gameLogic.MovePaddle2 (paddleMovementRequest.paddle.x, paddleMovementRequest.paddle.y);
-		}
-	}
+	#region start game
 
 	/// <summary>
 	/// Sends the game start message to the server.
@@ -215,20 +293,17 @@ public class GameController : MonoBehaviour, IListener {
 		serverMessageDispatcher.SendMessage (startGameRequest);
 	}
 
-	#endregion
-
-	#region button actions
-
 	/// <summary>
-	/// This method is used by the "start button". It initializes the game by
-	/// connecting to the server.
+	/// When the start game message comes from the server it starts the game
 	/// </summary>
-	public void ConnectToServer() {
-		Destroy (startBtn);
-		GameConnectionRequest gameConnectionRequest = new GameConnectionRequest ();
-		gameConnectionRequest.deviceId = SystemInfo.deviceUniqueIdentifier;
-		serverMessageDispatcher.SendMessage (gameConnectionRequest);
+	/// <param name="startGameResponse">Start game response.</param>
+	private void ProcessStartGame(StartGameResponse startGameResponse) {
+		Debug.Log ("Starting game now");
+		opponentPaddle.GetComponent<Renderer>().enabled = true;
+		ball.GetComponentsInChildren<Renderer>()[0].enabled = true;
+		gameLogic.StartGame ();
 	}
+
 
 	#endregion
 
@@ -236,8 +311,7 @@ public class GameController : MonoBehaviour, IListener {
 
 	private void InitializeGameSession() {
 		gameLogic = new GameLogic ();
-		AlignCamera ();
-
+	
 		swipeControl = Instantiate (swipeControlPrefab).GetComponent<SwipeControl>();
 
 		// initializing the paddles
@@ -252,26 +326,27 @@ public class GameController : MonoBehaviour, IListener {
 			otherPlayerNumber = 1;
 		}
 
+		// only if we are running in mobile
+		//#if UNITY_IOS
 		myPaddle.SetSwipeControl (swipeControl);
+		//#endif
 
 		myPaddle.SetIsPaddleControlledByThisClient (true);
 		myPaddle.SetGameModel (gameId, gameLogic, playerNumber);
 
 		opponentPaddle.SetIsPaddleControlledByThisClient (false);
 		opponentPaddle.SetGameModel (gameId, gameLogic, otherPlayerNumber);
+		opponentPaddle.GetComponent<Renderer>().enabled = false;
 
 		// initializing the ball
 		ball = Instantiate (ballPrefab).GetComponent<Ball>();
 		ball.SetGameModel (gameId, gameLogic);
-	}
-
-	private void AlignCamera() {
-		Camera.main.transform.position = new Vector3 (5.5f,5.2f, -10);
+		ball.GetComponentsInChildren<Renderer>()[0].enabled = false;
 	}
 
 	private GameObject CreatePaddle(SimpleGameObject paddleVO, GameObject prefab) {
 		GameObject paddle = Instantiate<GameObject>(prefab);
-		paddle.transform.position = new Vector3 (paddleVO.x, paddleVO.y, 2);
+		paddle.transform.position = new Vector3 (paddleVO.x, paddle.transform.position.y, 2);
 		return paddle;
 	}
 

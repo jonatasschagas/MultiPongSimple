@@ -9,6 +9,10 @@ using System;
 /// </summary>
 public class Paddle : MonoBehaviour {
 
+	private float DETECT_INPUT_INTERVAL_SECONDS = 0.1f ;
+
+	private float DETECT_MOBILE_INPUT_INTERVAL_SECONDS = 0.1f ;
+
 	#region control members
 	/// <summary>
 	/// Flag that tells whether this paddle is controlled by the 
@@ -45,7 +49,7 @@ public class Paddle : MonoBehaviour {
 	/// <summary>
 	/// Function that is executed in the game model to update the paddle movement
 	/// </summary>
-	private delegate void MovePaddle(float x, float y); 
+	private delegate void MovePaddle(bool right); 
 	private MovePaddle movePaddleFunction;
 
 	/// <summary>
@@ -59,14 +63,21 @@ public class Paddle : MonoBehaviour {
 	private Dictionary<long, List<PaddleMovementRequest>> inputs;
 
 	/// <summary>
-	/// Queue that has the replay movements that is used to simulate the opponents paddle
-	/// </summary>
-	private Queue<PaddleMovementRequest> replayQueue;
-
-	/// <summary>
-	/// Object used to detect the swipes on the screen
+	/// Swipe controller 
 	/// </summary>
 	private SwipeControl swipeControl;
+
+	/// <summary>
+	/// Tells whether the game is being run in a mobile device or if its run in a computer
+	/// </summary>
+	private bool isMobile;
+
+	/// <summary>
+	/// Cool down time to detect input
+	/// </summary>
+	private float detectInputCooldown;
+
+	private Animator animator;
 
 	#endregion
 
@@ -74,104 +85,79 @@ public class Paddle : MonoBehaviour {
 
 	void Start () {
 		inputs = new Dictionary<long, List<PaddleMovementRequest>> ();	
-		replayQueue = new Queue<PaddleMovementRequest>();
+		isMobile = false;
+		animator = gameObject.GetComponent<Animator> ();
 	}
 	
 	void Update () {
+		DetectInputFromComputer ();
 		Render ();
+		animator.SetFloat ("paddle_and_ball_x_diff", Mathf.Abs(paddleModel.x - gameModel.ball.x));
+		animator.SetFloat ("paddle_and_ball_y_diff", Mathf.Abs(paddleModel.y - gameModel.ball.y));
 	}
 
 	private void Render() {
 		if (!LeanTween.isTweening (gameObject)) {
 			Vector3 paddleCurPos = gameObject.transform.position;
+			// rendering the paddle based on the model
+			paddleCurPos.x = paddleModel.x;
+
 			if (isPaddleControlledByThisClient) {
-				// rendering the paddle based on the model
-				paddleCurPos.x = paddleModel.x;
-				paddleCurPos.y = paddleModel.y;
-				LeanTween.move (gameObject, paddleCurPos, 0.1f);
-			} else if (replayQueue.Count > 0) {
-				PaddleMovementRequest movement = replayQueue.Dequeue ();
-				paddleCurPos.x = movement.paddle.x;
-				paddleCurPos.y = movement.paddle.y;
-				LeanTween.move (gameObject, paddleCurPos, 0.1f);
+				// make it feel snappy for the local player
+				LeanTween.move (gameObject, paddleCurPos, 0.01f);
+			} else {
+				// delay a bit the movement for the opponent to give a feel of smoothness"
+				LeanTween.move (gameObject, paddleCurPos, 0.25f);
 			}
 		} 
 	}
 
 	/// <summary>
-	/// Detects the input and stores it
+	/// Detects if the input is from a computer.
 	/// </summary>
-	private void DetectInput(SwipeControl.SWIPE_DIRECTION iDirection) {
+	private void DetectInputFromComputer() {
+		if (this.isPaddleControlledByThisClient) { 
+			if (Input.GetKey(KeyCode.LeftArrow)) {
+				UpdatePaddlePosition(false);
+			} else if (Input.GetKey(KeyCode.RightArrow)) {
+				UpdatePaddlePosition(true);
+			}
+		}
+	}
+
+	/// <summary>
+	/// Detects the input if it's a mobile device
+	/// </summary>
+	private void DetectInputFromMobile(SwipeControl.SWIPE_DIRECTION iDirection) {
+		if (iDirection == SwipeControl.SWIPE_DIRECTION.SD_RIGHT) {
+			UpdatePaddlePosition (true);
+		} else if (iDirection == SwipeControl.SWIPE_DIRECTION.SD_LEFT) {
+			UpdatePaddlePosition (false);
+		}
+	}
+
+	private void UpdatePaddlePosition(bool increaseX) {
 
 		if (gameModel == null) {
 			return;
 		}
 
-		if (this.isPaddleControlledByThisClient) {
+		this.movePaddleFunction(increaseX);
 
-			float curX = paddleModel.x;
-			float curY = paddleModel.y;
-
-			switch ( iDirection ) {
-			case SwipeControl.SWIPE_DIRECTION.SD_LEFT:
-				curX--;
-				break;
-			case SwipeControl.SWIPE_DIRECTION.SD_RIGHT:
-				curX++;
-				break;
-			}
-
-			this.movePaddleFunction(curX, curY);
-			// storing the input
-			long currentTick = gameModel.currentTick;
-			PaddleMovementRequest paddleMovementRequest = new PaddleMovementRequest();
-			paddleMovementRequest.gameId = gameId;
-			paddleMovementRequest.paddle = paddleModel;
-			paddleMovementRequest.playerNumber = playerNumber;
-			paddleMovementRequest.tick = currentTick;
-			List<PaddleMovementRequest> listOfMovements = null;
-			if (!inputs.ContainsKey (currentTick)) {
-				inputs.Add (currentTick, new List<PaddleMovementRequest> ());
-			}
-			listOfMovements = inputs [currentTick];
-			listOfMovements.Add (paddleMovementRequest);
-			inputs[currentTick] = listOfMovements;
+		// storing the input
+		long currentTick = gameModel.currentTick;
+		PaddleMovementRequest paddleMovementRequest = new PaddleMovementRequest();
+		paddleMovementRequest.gameId = gameId;
+		paddleMovementRequest.paddle = paddleModel;
+		paddleMovementRequest.playerNumber = playerNumber;
+		paddleMovementRequest.tick = currentTick;
+		List<PaddleMovementRequest> listOfMovements = null;
+		if (!inputs.ContainsKey (currentTick)) {
+			inputs.Add (currentTick, new List<PaddleMovementRequest> ());
 		}
-
-	}
-
-	/// <summary>
-	/// Synchronizes where the paddle should be according to the updated game state
-	/// </summary>
-	/// <param name="serverState">Server state.</param>
-	public void SynchronizeWithServerState(GameLogic updatedGameState) {
-
-		GameLogic currentState = gameModel;
-
-		if (isPaddleControlledByThisClient == false) {
-			return;
-		}
-
-		SimpleGameObject currentPaddle = currentState.GetPaddleByPlayerNumber (playerNumber);
-		SimpleGameObject serverRefreshedPaddle = updatedGameState.GetPaddleByPlayerNumber (playerNumber);
-
-		// updates the current state's paddle if the positions differ
-		if (currentPaddle.x != serverRefreshedPaddle.x) {
-			currentState.SetPaddleByPlayerNumber (playerNumber, serverRefreshedPaddle);
-		}
-
-	}
-
-	/// <summary>
-	/// Enqueues the opponent movements, so in the update we can replay his movements
-	/// </summary>
-	/// <param name="replay">Replay.</param>
-	public void EnqueueOpponentReplay(PaddleMovementRequest[] replay) {
-		if(replay != null && replay.Length > 0) {
-			foreach(PaddleMovementRequest paddleMovement in replay) {
-				replayQueue.Enqueue (paddleMovement);
-			}
-		}
+		listOfMovements = inputs [currentTick];
+		listOfMovements.Add (paddleMovementRequest);
+		inputs[currentTick] = listOfMovements;
 	}
 
 	#endregion
@@ -197,6 +183,14 @@ public class Paddle : MonoBehaviour {
 		this.higherBoundGridX = gameModel.higherBoundGridX;
 	}
 
+	public void UpdatePaddleModel(GameLogic gameModel) {
+		if (playerNumber == 1) {
+			this.paddleModel = gameModel.paddle1;
+		} else {
+			this.paddleModel = gameModel.paddle2;
+		}
+	}
+
 	public SimpleGameObject GePaddleModel() {
 		return paddleModel;
 	}
@@ -219,7 +213,8 @@ public class Paddle : MonoBehaviour {
 
 	public void SetSwipeControl(SwipeControl swipeControl) {
 		this.swipeControl = swipeControl;
-		swipeControl.SetMethodToCall (DetectInput);
+		swipeControl.SetMethodToCall (DetectInputFromMobile);
+		this.isMobile = true;
 	}
 
 	#endregion

@@ -28,23 +28,18 @@ public class Ball : MonoBehaviour {
 		ballCurPos.x = gameModel.ball.x;
 		ballCurPos.y = gameModel.ball.y;
 		if (!LeanTween.isTweening (gameObject)) {
-			LeanTween.move (gameObject, ballCurPos, 0.5f);
+			//LeanTween.move (gameObject, ballCurPos, gameModel.speed);
+			float diffX = Math.Abs(transform.position.x - ballCurPos.x);
+			float diffY = Math.Abs(transform.position.y - ballCurPos.y);
+			if (diffX > 0.5f || diffY > 0.5f) {
+				// smoothing the sudden difference in between 
+				// the previous and current position of the ball
+				LeanTween.move (gameObject, ballCurPos, 0.25f);
+			} else {
+				LeanTween.move (gameObject, ballCurPos, 0f);
+			}
 		}
 
-	}
-
-	/// <summary>
-	/// Synchronizes where the ball should be according to the updated game state
-	/// </summary>
-	/// <param name="serverState">Server state.</param>
-	public void SynchronizeWithServerState(GameLogic updatedGameState) {
-		SimpleGameObject currentBall = gameModel.ball;
-		SimpleGameObject updatedBall = updatedGameState.ball;
-
-		// updates the current state of the ball if the local position and the refreshed one differ
-		if (currentBall.x != updatedBall.x || currentBall.y != updatedBall.y) {
-			gameModel.ball = updatedBall;
-		}
 	}
 
 	#endregion

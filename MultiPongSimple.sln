@@ -1,11 +1,11 @@
+﻿
 Microsoft Visual Studio Solution File, Format Version 11.00
-# Visual Studio 2008
-
-Project("{FD36FB74-8920-C837-6553-0BF791382852}") = "MultiPongSimple", "Assembly-CSharp-firstpass.csproj", "{ACAF87B5-D13C-6136-CD57-135240324359}"
+# Visual Studio 2010
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "MultiPongSimple", "Assembly-CSharp-firstpass.csproj", "{ACAF87B5-D13C-6136-CD57-135240324359}"
 EndProject
-Project("{FD36FB74-8920-C837-6553-0BF791382852}") = "MultiPongSimple", "Assembly-CSharp.csproj", "{B0F83B30-7F69-EC7B-B5E2-5E510E86293A}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "MultiPongSimple", "Assembly-CSharp.csproj", "{B0F83B30-7F69-EC7B-B5E2-5E510E86293A}"
 EndProject
-Project("{FD36FB74-8920-C837-6553-0BF791382852}") = "MultiPongSimple", "Assembly-CSharp-Editor.csproj", "{9439E1F0-C949-D824-02FB-D085B3DCEC7D}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "MultiPongSimple", "Assembly-CSharp-Editor.csproj", "{9439E1F0-C949-D824-02FB-D085B3DCEC7D}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution

@@ -8,8 +8,16 @@ public class MathUtils {
 		return UnityEngine.Random.Range (lowerBound, higherBound);
 	}
 
-	public static float Tan(float angleInRad) {
-		return UnityEngine.Mathf.Tan (angleInRad);
+	public static float Tan(float angle) {
+		return UnityEngine.Mathf.Tan (DegreesToRad(angle));
+	}
+
+	public static float Cos(float angle) {
+		return UnityEngine.Mathf.Cos (DegreesToRad(angle));
+	}
+
+	public static float Sin(float angle) {
+		return UnityEngine.Mathf.Sin (DegreesToRad(angle));
 	}
 
 	public static float DegreesToRad(float angleInDegrees) {
